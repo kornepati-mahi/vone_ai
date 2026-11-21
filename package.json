@@ -1,0 +1,10 @@
+{
+  "name": "vone-ai-calling",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install": "cd server && npm install",
+    "start": "cd server && npm start",
+    "build": "cd server && npm install"
+  }
+}
