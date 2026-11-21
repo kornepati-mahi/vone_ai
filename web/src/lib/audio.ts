@@ -1,4 +1,4 @@
-import { authStore } from './api';
+import { authStore, getApiBase } from './api';
 
 export const isRemoteUrl = (url: string) => /^https?:\/\//i.test(url);
 
@@ -9,10 +9,13 @@ export const isRemoteUrl = (url: string) => /^https?:\/\//i.test(url);
  */
 export async function fetchAudioObjectUrl(url: string): Promise<string> {
   if (!url || url.startsWith('data:')) return url;
+  // Relative URLs (e.g. "/api/employees/voice-samples/...") must be resolved
+  // against the backend origin, not the frontend origin.
+  const absolute = url.startsWith('/') && !isRemoteUrl(url) ? `${getApiBase()}${url}` : url;
   const headers: Record<string, string> = {};
   const token = authStore.getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(url, { headers, credentials: 'include' });
+  const res = await fetch(absolute, { headers, credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to load audio (${res.status})`);
   const blob = await res.blob();
   return URL.createObjectURL(blob);
