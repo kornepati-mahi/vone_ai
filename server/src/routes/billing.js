@@ -3,7 +3,7 @@ const config = require('../config/env');
 const { query, queryOne, insert, update } = require('../config/db');
 const { generateId } = require('../utils/helpers');
 const { AppError } = require('../utils/errors');
-const { asyncHandler } = require('../utils/helpers');
+const { asyncHandler, safeJson } = require('../utils/helpers');
 const { requireOrg } = require('../middleware/auth');
 const { getWallet, purchaseCredits } = require('../services/credits');
 const { getPaymentProvider } = require('../providers');
@@ -66,8 +66,7 @@ router.use(requireOrg);
 
 async function readPricing() {
   const row = await queryOne("SELECT data FROM admin_settings WHERE section = 'pricing'");
-  if (row) return typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
-  return {
+  const fallback = {
     creditPerMinute: 2,
     packages: [
       { key: 'starter', name: 'Starter', price: 999, credits: 500 },
@@ -76,6 +75,8 @@ async function readPricing() {
       { key: 'enterprise', name: 'Enterprise', price: 19999, credits: 20000 },
     ],
   };
+  if (row) return safeJson(row.data) || fallback;
+  return fallback;
 }
 
 router.get('/packages', asyncHandler(async (_req, res) => {
