@@ -425,6 +425,18 @@ router.get('/providers/live-status', asyncHandler(async (_req, res) => {
           /* capacity is the point of this probe; numbers are context only */
         }
 
+        // Fetch the real carrier balance (VoBiz exposes it at
+        // /Account/{auth_id}/balance/{currency}).
+        let carrierBalance = null;
+        let carrierCurrency = account.currency || 'INR';
+        try {
+          const bal = await getTelephonyProvider('vobiz').getCarrierBalance(carrierCurrency);
+          carrierBalance = bal?.balance ?? null;
+          carrierCurrency = bal?.currency || carrierCurrency;
+        } catch {
+          /* balance is context, not a reason to fail the probe */
+        }
+
         return {
           status: 'connected',
           latencyMs: Date.now() - t0,
@@ -432,10 +444,8 @@ router.get('/providers/live-status', asyncHandler(async (_req, res) => {
           consoleEmail: account.email || config.providers.vobiz.consoleEmail || null,
           accountName: account.name || null,
           company: account.company || 'Vone Digitals (VoBiz India)',
-          // The documented balance path is not published, so this stays null
-          // rather than reporting a fabricated figure.
-          balance: null,
-          currency: account.currency || 'INR',
+          balance: carrierBalance,
+          currency: carrierCurrency,
           baseUrl,
           isTrial: Boolean(account.isTrial),
           postpaid: Boolean(account.postpaid),
@@ -618,8 +628,8 @@ router.get('/providers/live-status', asyncHandler(async (_req, res) => {
         latencyMs: vobizData.latencyMs,
         authId: vobizData.authId || config.providers.vobiz.authId,
         consoleEmail: vobizData.consoleEmail || 'pmahi7801@gmail.com',
-        balance: vobizData.balance || 0,
-        currency: 'INR',
+        balance: vobizData.balance ?? 0,
+        currency: vobizData.currency || 'INR',
         baseUrl: vobizData.baseUrl || config.providers.vobiz.baseUrl,
         isTrial: vobizData.isTrial ?? true,
         accountName: 'Vone Digitals (Active)',

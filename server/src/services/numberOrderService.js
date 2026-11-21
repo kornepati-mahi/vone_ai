@@ -6,7 +6,13 @@ const { provisionInboundForNumber } = require('./inboundProvisioning');
 const walletService = require('./walletService');
 const { audit } = require('./activity');
 
-const vobiz = new VoBizProvider();
+const vobiz = new Proxy({}, {
+  get(target, prop) {
+    if (!target._inst) target._inst = new VoBizProvider();
+    const val = target._inst[prop];
+    return typeof val === 'function' ? val.bind(target._inst) : val;
+  },
+});
 
 /**
  * Get available phone numbers with platform markup applied

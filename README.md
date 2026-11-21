@@ -27,3 +27,4 @@ npm run dev
 
 - **Backend**: Render (Web Service running `server/`)
 - **Frontend**: Vercel (Vite SPA running `web/`)
+# vone_ai

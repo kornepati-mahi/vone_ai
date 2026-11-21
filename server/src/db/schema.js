@@ -562,12 +562,120 @@ const TABLES = {
       INDEX idx_pnp_number (number),
       INDEX idx_pnp_created (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+  wallets: `
+    CREATE TABLE IF NOT EXISTS wallets (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      organization_id INT NOT NULL UNIQUE,
+      user_id INT NULL,
+      balance_paise BIGINT NOT NULL DEFAULT 0,
+      reserved_paise BIGINT NOT NULL DEFAULT 0,
+      currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_wallets_org (organization_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+  wallet_transactions: `
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      wallet_id INT NOT NULL,
+      organization_id INT NOT NULL,
+      user_id INT NULL,
+      amount_paise BIGINT NOT NULL,
+      type VARCHAR(50) NOT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'completed',
+      reference VARCHAR(120) NOT NULL UNIQUE,
+      balance_after_paise BIGINT NOT NULL,
+      description TEXT NULL,
+      metadata JSON NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_wtx_wallet (wallet_id),
+      INDEX idx_wtx_org (organization_id),
+      INDEX idx_wtx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+  razorpay_orders: `
+    CREATE TABLE IF NOT EXISTS razorpay_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      order_id VARCHAR(100) NOT NULL UNIQUE,
+      organization_id INT NOT NULL,
+      user_id INT NULL,
+      amount_paise BIGINT NOT NULL,
+      currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+      status VARCHAR(30) NOT NULL DEFAULT 'created',
+      receipt VARCHAR(100) NULL,
+      payment_id VARCHAR(100) NULL,
+      signature VARCHAR(255) NULL,
+      webhook_payload JSON NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_ro_org (organization_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+  number_orders: `
+    CREATE TABLE IF NOT EXISTS number_orders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      order_id VARCHAR(100) NOT NULL UNIQUE,
+      organization_id INT NOT NULL,
+      user_id INT NULL,
+      phone_number VARCHAR(50) NOT NULL,
+      provider VARCHAR(30) NOT NULL DEFAULT 'vobiz',
+      carrier_item_id VARCHAR(100) NULL,
+      carrier_order_id VARCHAR(100) NULL,
+      number_type VARCHAR(30) DEFAULT 'local',
+      region VARCHAR(100) NULL,
+      setup_fee_paise BIGINT NOT NULL DEFAULT 0,
+      monthly_fee_paise BIGINT NOT NULL DEFAULT 0,
+      markup_paise BIGINT NOT NULL DEFAULT 0,
+      total_charged_paise BIGINT NOT NULL,
+      provider_cost_paise BIGINT NOT NULL,
+      status VARCHAR(40) NOT NULL DEFAULT 'CREATED',
+      error_message TEXT NULL,
+      carrier_result JSON NULL,
+      assigned_employee_id INT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_no_org (organization_id),
+      INDEX idx_no_phone (phone_number)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+  provider_balance_snapshots: `
+    CREATE TABLE IF NOT EXISTS provider_balance_snapshots (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      provider VARCHAR(30) NOT NULL DEFAULT 'vobiz',
+      reported_balance DECIMAL(12,2) NOT NULL,
+      available_balance DECIMAL(12,2) NOT NULL,
+      currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+      is_live TINYINT(1) NOT NULL DEFAULT 1,
+      raw_response JSON NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_pbs_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+  platform_financial_settings: `
+    CREATE TABLE IF NOT EXISTS platform_financial_settings (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      \`key\` VARCHAR(100) NOT NULL UNIQUE,
+      value VARCHAR(255) NOT NULL,
+      description TEXT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
 };
 
 async function migrate() {
   const db = require('../config/db');
   await db.testConnection();
-  console.log('[InsForge DB] Connected to InsForge PostgreSQL BaaS successfully.');
+  console.log('[DB] Connected to MySQL successfully.');
+  for (const [name, ddl] of Object.entries(TABLES)) {
+    try {
+      await db.query(ddl);
+      console.log(`  ok  ${name}`);
+    } catch (err) {
+      console.error(`  FAIL ${name}: ${err.message}`);
+    }
+  }
+  console.log('[DB] Migration complete.');
 }
 
 // The leads UI used to write Title-Case values ("Interested", "Not Interested")

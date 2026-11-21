@@ -17,9 +17,9 @@ const config = require('./config/env');
     require('./db/schema').migrateSafe();
     await new Promise((r) => setTimeout(r, 400));
     await require('./db/seed').seed();
-    console.log('[db] InsForge PostgreSQL database connected and ready.');
+    console.log('[db] MySQL database connected and ready.');
   } catch (err) {
-    console.error('[db] InsForge PostgreSQL connection error:', err.message);
+    console.error('[db] MySQL connection error:', err.message);
   }
 
   const app = express();

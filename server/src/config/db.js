@@ -1,35 +1,26 @@
 /**
- * InsForge PostgreSQL Database Client
- * Replaces local MySQL with InsForge BaaS PostgreSQL database.
+ * MySQL Database Client (XAMPP / local / remote MySQL)
+ * Uses mysql2. SQL is authored in MySQL style; translateSql provides a
+ * compatibility shim that also accepts the legacy Postgres-style placeholders
+ * ($1, $2, ...) and ON CONFLICT / RETURNING clauses.
  */
-const { Pool } = require('pg');
+const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 let pool;
 
 function getPool() {
   if (!pool) {
-    const connectionString = process.env.INSFORGE_DB_URL;
-    if (!connectionString) {
-      throw new Error('[db] INSFORGE_DB_URL is not set in environment.');
-    }
-
-    pool = new Pool({
-      connectionString,
-      ssl: { rejectUnauthorized: false },
-      max: 20,
-      idleTimeoutMillis: 20000,
-      connectionTimeoutMillis: 10000,
-      keepAlive: true,
-      keepAliveInitialDelayMillis: 10000,
-    });
-
-    pool.on('error', (err) => {
-      if (err?.code === 'ECONNRESET') {
-        // Normal behavior when cloud Postgres closes an idle TCP connection; pool reconnects automatically
-        return;
-      }
-      console.error('[db] Unexpected error on idle InsForge client', err);
+    pool = mysql.createPool({
+      host: process.env.MYSQL_HOST || 'localhost',
+      port: Number(process.env.MYSQL_PORT || 3306),
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'vone_calling_ai_telugu',
+      waitForConnections: true,
+      connectionLimit: 20,
+      queueLimit: 0,
+      charset: 'utf8mb4',
     });
   }
   return pool;
@@ -37,18 +28,15 @@ function getPool() {
 
 function sanitizeParams(params = []) {
   if (!Array.isArray(params)) return [];
-  return params.map((p) => {
-    if (p === undefined) return null;
-    return p;
-  });
+  return params.map((p) => (p === undefined ? null : p));
 }
 
 function isDuplicateKeyError(err) {
-  return err?.code === '23505' || err?.code === 'ER_DUP_ENTRY' || err?.errno === 1062;
+  return err?.code === 'ER_DUP_ENTRY' || err?.errno === 1062;
 }
 
 function isConnectionError(err) {
-  const codes = ['ECONNREFUSED', 'PROTOCOL_CONNECTION_LOST', 'ETIMEDOUT', 'ENOTFOUND', 'EHOSTUNREACH', 'ECONNRESET', '57P01', '08006', '08001'];
+  const codes = ['ECONNREFUSED', 'PROTOCOL_CONNECTION_LOST', 'ETIMEDOUT', 'ENOTFOUND', 'EHOSTUNREACH', 'ECONNRESET'];
   if (codes.includes(err?.code)) return true;
   if (Array.isArray(err?.errors)) return err.errors.some((e) => codes.includes(e?.code));
   return false;
@@ -56,9 +44,7 @@ function isConnectionError(err) {
 
 function asConflictError(err) {
   if (!isDuplicateKeyError(err)) return err;
-  const conflict = new Error(
-    'This record already exists. Duplicate values are not allowed for this field.'
-  );
+  const conflict = new Error('This record already exists. Duplicate values are not allowed for this field.');
   conflict.code = 'DUPLICATE_ENTRY';
   conflict.status = 409;
   conflict.cause = err;
@@ -68,84 +54,56 @@ function asConflictError(err) {
 function handleQueryError(err) {
   if (isDuplicateKeyError(err)) throw asConflictError(err);
   if (!isConnectionError(err)) throw err;
-  console.error(`[db] Cannot reach InsForge PostgreSQL (${err.code || err.message}).`);
-  const e = new Error('Database unavailable. Cannot reach InsForge PostgreSQL.');
+  console.error(`[db] Cannot reach MySQL (${err.code || err.message}).`);
+  const e = new Error('Database unavailable. Cannot reach MySQL.');
   e.code = 'DB_UNAVAILABLE';
   e.status = 503;
   throw e;
 }
 
-/**
- * Translates MySQL-style SQL to PostgreSQL syntax
- */
 function translateSql(sql) {
   if (typeof sql !== 'string') return sql;
-
   let s = sql.trim();
 
-  // Convert MySQL ON DUPLICATE KEY UPDATE to Postgres ON CONFLICT DO UPDATE / NOTHING
-  if (/ON\s+DUPLICATE\s+KEY\s+UPDATE/i.test(s)) {
-    if (/INSERT\s+INTO\s+admin_settings/i.test(s)) {
-      s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE.*/is, 'ON CONFLICT (section) DO UPDATE SET data = EXCLUDED.data');
-    } else if (/INSERT\s+INTO\s+settings/i.test(s)) {
-      s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE.*/is, 'ON CONFLICT (organization_id, section) DO UPDATE SET data = EXCLUDED.data');
-    } else if (/INSERT\s+INTO\s+call_outcomes/i.test(s)) {
-      s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE.*/is, 'ON CONFLICT (call_id) DO UPDATE SET outcome = EXCLUDED.outcome, confidence = EXCLUDED.confidence, reason = EXCLUDED.reason, next_action = EXCLUDED.next_action');
-    } else if (/INSERT\s+INTO\s+credit_wallets/i.test(s)) {
-      s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE.*/is, 'ON CONFLICT (organization_id) DO NOTHING');
-    } else if (/INSERT\s+INTO\s+deleted_employees/i.test(s)) {
-      s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE.*/is, 'ON CONFLICT (organization_id, employee_id) DO UPDATE SET deleted_at = CURRENT_TIMESTAMP');
-    } else if (/INSERT\s+INTO\s+phone_numbers/i.test(s)) {
-      s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE.*/is, 'ON CONFLICT (number) DO UPDATE SET status = (CASE WHEN phone_numbers.status = \'released\' THEN \'active\' ELSE phone_numbers.status END)');
-    } else if (/INSERT\s+INTO\s+calls/i.test(s)) {
-      s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE.*/is, 'ON CONFLICT (call_id) DO UPDATE SET carrier_call_uuid = COALESCE(EXCLUDED.carrier_call_uuid, calls.carrier_call_uuid)');
-    } else {
-      // Generic replacement for VALUES(col) -> EXCLUDED.col
-      s = s.replace(/VALUES\s*\(\s*([a-zA-Z0-9_]+)\s*\)/gi, 'EXCLUDED.$1');
-    }
-  }
+  // Convert Postgres ON CONFLICT ... DO NOTHING -> MySQL no-op upsert
+  s = s.replace(/ON\s+CONFLICT\s*\([^)]*\)\s*DO\s+NOTHING/gi, 'ON DUPLICATE KEY UPDATE id = id');
 
-  // Convert MySQL IF(cond, a, b) to CASE WHEN cond THEN a ELSE b END
-  s = s.replace(/\bIF\s*\(([^,]+),([^,]+),([^)]+)\)/gi, 'CASE WHEN $1 THEN $2 ELSE $3 END');
+  // Convert Postgres ON CONFLICT ... DO UPDATE SET ... -> MySQL ON DUPLICATE KEY UPDATE ...
+  s = s.replace(/ON\s+CONFLICT\s*\([^)]*\)\s*DO\s+UPDATE\s+SET/gi, 'ON DUPLICATE KEY UPDATE');
 
-  // Convert MySQL IFNULL(...) to COALESCE(...)
-  s = s.replace(/\bIFNULL\s*\(/gi, 'COALESCE(');
+  // Convert EXCLUDED.col -> VALUES(col)
+  s = s.replace(/\bEXCLUDED\.([a-zA-Z_][a-zA-Z0-9_]*)/gi, 'VALUES($1)');
 
-  // Convert MySQL CURDATE() to CURRENT_DATE
-  s = s.replace(/\bCURDATE\s*\(\s*\)/gi, 'CURRENT_DATE');
+  // Remove Postgres RETURNING clause
+  s = s.replace(/\s+RETURNING\b[^;]*/gi, '');
 
-  // Convert MySQL DATE_SUB/DATE_ADD with any interval unit
-  s = s.replace(/\bDATE_SUB\s*\(([^,]+),\s*INTERVAL\s+([0-9]+)\s+([a-zA-Z]+)\)/gi, "(($1) - INTERVAL '$2 $3')");
-  s = s.replace(/\bDATE_ADD\s*\(([^,]+),\s*INTERVAL\s+([0-9]+)\s+([a-zA-Z]+)\)/gi, "(($1) + INTERVAL '$2 $3')");
+  // Remove Postgres type casts (::type)
+  s = s.replace(/::[a-zA-Z_][a-zA-Z0-9_]*/g, '');
 
-  // Convert MySQL TIMESTAMPDIFF(SECOND, a, b) to EXTRACT(EPOCH FROM ((b) - (a)))
-  s = s.replace(/\bTIMESTAMPDIFF\s*\(\s*SECOND\s*,\s*([^,]+),\s*([^)]+)\)/gi, 'EXTRACT(EPOCH FROM (($2) - ($1)))');
+  // Convert Postgres EXTRACT(EPOCH FROM (a - b)) to MySQL (UNIX_TIMESTAMP(a) - UNIX_TIMESTAMP(b))
+  s = s.replace(/EXTRACT\s*\(\s*EPOCH\s+FROM\s*\(\s*([a-zA-Z0-9_.]+)\s*-\s*([a-zA-Z0-9_.]+)\s*\)\)/gi,
+    '(UNIX_TIMESTAMP($1) - UNIX_TIMESTAMP($2))');
 
-  // Convert MySQL UNIX_TIMESTAMP() to EXTRACT(EPOCH FROM NOW())
-  s = s.replace(/\bUNIX_TIMESTAMP\s*\(\s*\)/gi, 'EXTRACT(EPOCH FROM NOW())::integer');
+  // Convert Postgres quoted intervals ('7 days') to MySQL (7 DAY)
+  s = s.replace(/INTERVAL\s+'(\d+)\s+(\w+)'/gi, (_, n, unit) => `INTERVAL ${n} ${unit.toUpperCase().replace(/S$/, '')}`);
 
-  // Convert MySQL double-quoted string literals to PostgreSQL single-quoted literals
-  // (In MySQL: status = "ready". In PostgreSQL: double quotes are column identifiers, causing column "ready" does not exist)
-  s = s.replace(/"([^"]+)"/g, "'$1'");
-
-  // Replace ? placeholders with $1, $2, ...
-  let paramIndex = 0;
-  s = s.replace(/\?/g, () => '$' + (++paramIndex));
+  // Convert $1, $2, ... placeholders to ?
+  s = s.replace(/\$\d+/g, '?');
 
   return s;
 }
 
 async function query(sql, params = []) {
-  const pgSql = translateSql(sql);
+  const mySql = translateSql(sql);
   const sanitized = sanitizeParams(params);
   try {
-    const res = await getPool().query(pgSql, sanitized);
-    return res.rows;
+    const [rows] = await getPool().query(mySql, sanitized);
+    return rows;
   } catch (err) {
     if (isConnectionError(err)) {
       try {
-        const res = await getPool().query(pgSql, sanitized);
-        return res.rows;
+        const [rows] = await getPool().query(mySql, sanitized);
+        return rows;
       } catch (retryErr) {
         handleQueryError(retryErr);
       }
@@ -164,30 +122,21 @@ async function queryOne(sql, params = []) {
 }
 
 async function insert(sql, params = []) {
-  let pgSql = translateSql(sql);
+  const mySql = translateSql(sql);
   const sanitized = sanitizeParams(params);
-  const isInsert = /^\s*INSERT\s+INTO/i.test(pgSql);
-  if (isInsert && !/\bRETURNING\b/i.test(pgSql)) {
-    pgSql += ' RETURNING id';
-  }
-
   try {
-    const res = await getPool().query(pgSql, sanitized);
-    const firstRow = res.rows?.[0];
-    const insertId = firstRow?.id !== undefined ? Number(firstRow.id) : 0;
+    const [result] = await getPool().execute(mySql, sanitized);
     return {
-      insertId,
-      affectedRows: res.rowCount || (insertId > 0 ? 1 : 0),
+      insertId: result.insertId || 0,
+      affectedRows: result.affectedRows || 0,
     };
   } catch (err) {
     if (isConnectionError(err)) {
       try {
-        const res = await getPool().query(pgSql, sanitized);
-        const firstRow = res.rows?.[0];
-        const insertId = firstRow?.id !== undefined ? Number(firstRow.id) : 0;
+        const [result] = await getPool().execute(mySql, sanitized);
         return {
-          insertId,
-          affectedRows: res.rowCount || (insertId > 0 ? 1 : 0),
+          insertId: result.insertId || 0,
+          affectedRows: result.affectedRows || 0,
         };
       } catch (retryErr) {
         if (isDuplicateKeyError(retryErr)) throw asConflictError(retryErr);
@@ -205,16 +154,16 @@ async function upsert(sql, params = []) {
 }
 
 async function update(sql, params = []) {
-  const pgSql = translateSql(sql);
+  const mySql = translateSql(sql);
   const sanitized = sanitizeParams(params);
   try {
-    const res = await getPool().query(pgSql, sanitized);
-    return { affectedRows: res.rowCount, changedRows: res.rowCount };
+    const [result] = await getPool().execute(mySql, sanitized);
+    return { affectedRows: result.affectedRows || 0, changedRows: result.changedRows || result.affectedRows || 0 };
   } catch (err) {
     if (isConnectionError(err)) {
       try {
-        const res = await getPool().query(pgSql, sanitized);
-        return { affectedRows: res.rowCount, changedRows: res.rowCount };
+        const [result] = await getPool().execute(mySql, sanitized);
+        return { affectedRows: result.affectedRows || 0, changedRows: result.changedRows || result.affectedRows || 0 };
       } catch (retryErr) {
         if (isDuplicateKeyError(retryErr)) throw asConflictError(retryErr);
         handleQueryError(retryErr);
@@ -226,39 +175,36 @@ async function update(sql, params = []) {
 }
 
 async function withTransaction(fn) {
-  const client = await getPool().connect();
+  const conn = await getPool().getConnection();
   try {
-    await client.query('BEGIN');
-
-    // Create wrapped executor so queries inside transaction benefit from translation
+    await conn.beginTransaction();
     const tx = {
       query: async (sql, params = []) => {
-        const res = await client.query(translateSql(sql), sanitizeParams(params));
-        return res.rows;
+        const [rows] = await conn.query(translateSql(sql), sanitizeParams(params));
+        return rows;
       },
       execute: async (sql, params = []) => {
-        const res = await client.query(translateSql(sql), sanitizeParams(params));
-        return [res.rows, res.fields];
+        const [rows, fields] = await conn.query(translateSql(sql), sanitizeParams(params));
+        return [rows, fields];
       },
     };
-
     const result = await fn(tx);
-    await client.query('COMMIT');
+    await conn.commit();
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    await conn.rollback();
     throw err;
   } finally {
-    client.release();
+    conn.release();
   }
 }
 
 async function testConnection() {
-  const client = await getPool().connect();
+  const conn = await getPool().getConnection();
   try {
-    await client.query('SELECT 1');
+    await conn.query('SELECT 1');
   } finally {
-    client.release();
+    conn.release();
   }
 }
 
