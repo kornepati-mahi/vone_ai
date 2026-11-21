@@ -12,7 +12,7 @@ router.use(requireOrg);
 async function getSettings(orgId) {
   const rows = await query('SELECT * FROM settings WHERE organization_id = ?', [orgId]);
   const out = {};
-  for (const r of rows) out[r.section] = JSON.parse(r.data);
+  for (const r of rows) out[r.section] = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
   return out;
 }
 

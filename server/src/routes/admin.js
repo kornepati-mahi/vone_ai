@@ -244,7 +244,7 @@ router.get('/providers', asyncHandler(async (req, res) => {
   const config = require('../config/env');
   const rows = await query('SELECT * FROM admin_settings');
   const settings = {};
-  for (const r of rows) settings[r.section] = JSON.parse(r.data);
+  for (const r of rows) settings[r.section] = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
   res.json({
     success: true,
     providers: {
@@ -920,7 +920,7 @@ router.get('/config/credentials', asyncHandler(async (_req, res) => {
 router.put('/config/credentials', asyncHandler(async (req, res) => {
   const { key, value } = req.body;
   const existing = await queryOne("SELECT id, data FROM admin_settings WHERE section = 'credentials'");
-  const current = existing ? JSON.parse(existing.data) : {};
+  const current = existing ? (typeof existing.data === 'string' ? JSON.parse(existing.data) : existing.data) : {};
   current[key] = value;
   // Read-merge-write still has a lost-update window, so at minimum make the
   // write itself an atomic upsert (section is UNIQUE).

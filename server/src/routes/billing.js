@@ -66,7 +66,7 @@ router.use(requireOrg);
 
 async function readPricing() {
   const row = await queryOne("SELECT data FROM admin_settings WHERE section = 'pricing'");
-  if (row) return JSON.parse(row.data);
+  if (row) return typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
   return {
     creditPerMinute: 2,
     packages: [
