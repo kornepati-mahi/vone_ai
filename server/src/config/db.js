@@ -12,12 +12,12 @@ let pool;
 async function ensureDatabase() {
   const target = process.env.MYSQL_DATABASE || 'vone_calling_ai_telugu';
   // Connect to the server (no specific database) to create the target DB.
+  // Railway's default DB is 'railway'; fall back to 'mysql' system DB.
   const bootstrap = mysql.createPool({
     host: process.env.MYSQL_HOST || 'localhost',
     port: Number(process.env.MYSQL_PORT || 3306),
     user: process.env.MYSQL_USER || 'root',
     password: process.env.MYSQL_PASSWORD || '',
-    database: 'mysql',
     waitForConnections: true,
     connectionLimit: 2,
   });
