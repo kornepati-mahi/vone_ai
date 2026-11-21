@@ -15,6 +15,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { toAudioUrl } from '@/lib/audio';
 import { useToast } from '@/components/ui/toast';
 import { Dialog } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -266,7 +267,7 @@ export function AiEmployeeBuilderHero({ onEmployeeCreated }: AiEmployeeBuilderHe
         return;
       }
 
-      audio.src = res.audioUrl;
+      audio.src = toAudioUrl(res.audioUrl);
       if (isDialogue) {
         setIsLoadingDialogue(false);
         setIsPlayingDialogue(true);
@@ -531,7 +532,7 @@ export function AiEmployeeBuilderHero({ onEmployeeCreated }: AiEmployeeBuilderHe
       }
       if (swaraAudioUrlRef.current) URL.revokeObjectURL(swaraAudioUrlRef.current);
       swaraAudioUrlRef.current = res.audioUrl;
-      audio.src = res.audioUrl;
+      audio.src = toAudioUrl(res.audioUrl);
       await audio.play();
     } catch {
       if (reqId === swaraReqIdRef.current) setSwaraSpeaking(false);

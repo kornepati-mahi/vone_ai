@@ -42,7 +42,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { useToast } from '@/components/ui/toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api, ApiClientError } from '@/lib/api';
-import { fetchAudioObjectUrl } from '@/lib/audio';
+import { fetchAudioObjectUrl, toAudioUrl } from '@/lib/audio';
 import { formatTimeAgo, titleCase, formatDateTime } from '@/lib/utils';
 import { useRealtimeEvent } from '@/hooks/useRealtime';
 import { usePerformance, useVoices, useDeleteEmployee, usePhoneNumbers } from '@/hooks/queries';
@@ -766,7 +766,7 @@ PHONE CALL RULES (always follow):
       });
 
       if (res.audioUrl) {
-        const audio = new Audio(res.audioUrl);
+        const audio = new Audio(toAudioUrl(res.audioUrl));
         activeAudioRef.current = audio;
         setPlayingVoice(voiceId);
         audio.onended = () => {

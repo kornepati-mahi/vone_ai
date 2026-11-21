@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useVoices } from '@/hooks/queries';
 import { api } from '@/lib/api';
+import { toAudioUrl } from '@/lib/audio';
 import type { VoiceOption } from '@/types';
 
 interface VoiceSelectorProps {
@@ -212,7 +213,7 @@ const handlePlayPreview = async (e: React.MouseEvent, voice: VoiceOption) => {
       if (!isCurrent()) return;
       if (!res.audioUrl) throw new Error('No audio returned');
 
-      audio = new Audio(res.audioUrl);
+      audio = new Audio(toAudioUrl(res.audioUrl));
       audio.preload = 'auto';
       audioRef.current = audio;
 

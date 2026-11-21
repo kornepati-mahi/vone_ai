@@ -3,6 +3,18 @@ import { authStore, getApiBase } from './api';
 export const isRemoteUrl = (url: string) => /^https?:\/\//i.test(url);
 
 /**
+ * Backend audio URLs can be relative ("/api/employees/voice-samples/....wav").
+ * The browser resolves those against the *frontend* origin, so on Vercel they
+ * 404. Prefix the backend base for relative URLs; data:/https URLs pass through.
+ */
+export const toAudioUrl = (url: string): string => {
+  if (!url || url.startsWith('data:')) return url;
+  if (isRemoteUrl(url)) return url;
+  if (url.startsWith('/')) return `${getApiBase()}${url}`;
+  return url;
+};
+
+/**
  * Audio samples for cloned voices are served from an authenticated API route,
  * so we must fetch them with the Bearer token and hand back a blob: URL.
  * data: URLs pass through untouched.

@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { toAudioUrl } from '@/lib/audio';
 import type { AIEmployee } from '@/types';
 import { useNavigate } from 'react-router-dom';
 
@@ -312,7 +313,7 @@ We help customers find the right vehicles and properties with flexible financing
       });
 
       if (res.audioUrl) {
-        const audio = new Audio(res.audioUrl);
+        const audio = new Audio(toAudioUrl(res.audioUrl));
         audioRef.current = audio;
         audio.onended = () => setPlayingVoiceId(null);
         audio.onerror = () => setPlayingVoiceId(null);
