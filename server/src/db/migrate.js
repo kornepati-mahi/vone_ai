@@ -2,6 +2,8 @@ const { migrate } = require('./schema');
 
 async function main() {
   try {
+    const { ensureDatabase } = require('../config/db');
+    await ensureDatabase();
     await migrate();
     console.log('Migration complete');
   } catch (err) {

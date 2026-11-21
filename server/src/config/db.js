@@ -9,6 +9,25 @@ require('dotenv').config();
 
 let pool;
 
+async function ensureDatabase() {
+  const target = process.env.MYSQL_DATABASE || 'vone_calling_ai_telugu';
+  // Connect to the server (no specific database) to create the target DB.
+  const bootstrap = mysql.createPool({
+    host: process.env.MYSQL_HOST || 'localhost',
+    port: Number(process.env.MYSQL_PORT || 3306),
+    user: process.env.MYSQL_USER || 'root',
+    password: process.env.MYSQL_PASSWORD || '',
+    database: 'mysql',
+    waitForConnections: true,
+    connectionLimit: 2,
+  });
+  try {
+    await bootstrap.query(`CREATE DATABASE IF NOT EXISTS \`${target}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+  } finally {
+    await bootstrap.end();
+  }
+}
+
 function getPool() {
   if (!pool) {
     pool = mysql.createPool({
@@ -210,6 +229,7 @@ async function testConnection() {
 
 module.exports = {
   getPool,
+  ensureDatabase,
   query,
   queryAll,
   queryOne,

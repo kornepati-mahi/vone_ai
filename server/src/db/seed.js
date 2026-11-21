@@ -3,6 +3,8 @@ const { migrate } = require('./schema');
 const { query, insert } = require('../config/db');
 
 async function seed() {
+  const { ensureDatabase } = require('../config/db');
+  await ensureDatabase();
   await migrate();
 
   // Default admin settings (configurable pricing etc.)

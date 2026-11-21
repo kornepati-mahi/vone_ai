@@ -12,7 +12,8 @@ const config = require('./config/env');
 (async () => {
   // ensure schema exists before serving
   try {
-    const { testConnection } = require('./config/db');
+    const { ensureDatabase, testConnection } = require('./config/db');
+    await ensureDatabase();
     await testConnection();
     require('./db/schema').migrateSafe();
     await new Promise((r) => setTimeout(r, 400));
