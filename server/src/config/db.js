@@ -11,21 +11,27 @@ let pool;
 
 async function ensureDatabase() {
   const target = process.env.MYSQL_DATABASE || 'vone_calling_ai_telugu';
-  // Connect to the server (no specific database) to create the target DB.
-  // Railway's default DB is 'railway'; fall back to 'mysql' system DB.
-  const bootstrap = mysql.createPool({
-    host: process.env.MYSQL_HOST || 'localhost',
-    port: Number(process.env.MYSQL_PORT || 3306),
-    user: process.env.MYSQL_USER || 'root',
-    password: process.env.MYSQL_PASSWORD || '',
-    waitForConnections: true,
-    connectionLimit: 2,
-  });
-  try {
-    await bootstrap.query(`CREATE DATABASE IF NOT EXISTS \`${target}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
-  } finally {
-    await bootstrap.end();
+  const host = process.env.MYSQL_HOST || 'localhost';
+  const port = Number(process.env.MYSQL_PORT || 3306);
+  const user = process.env.MYSQL_USER || 'root';
+  const password = process.env.MYSQL_PASSWORD || '';
+
+  // Try several bootstrap databases; Railway's default is 'railway', XAMPP has 'mysql'.
+  const candidates = ['railway', 'mysql', 'information_schema'];
+  let lastErr = null;
+  for (const db of candidates) {
+    const bootstrap = mysql.createPool({ host, port, user, password, database: db, waitForConnections: true, connectionLimit: 1 });
+    try {
+      await bootstrap.query(`CREATE DATABASE IF NOT EXISTS \`${target}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+      await bootstrap.end();
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      try { await bootstrap.end(); } catch {}
+    }
   }
+  if (lastErr) throw lastErr;
 }
 
 function getPool() {
