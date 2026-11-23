@@ -775,7 +775,11 @@ class MediaStreamSession {
           return;
         }
 
-        this.handleSpeechUtterance();
+        // Fire-and-forget is fine (VAD keeps consuming frames), but never let a
+        // rejection go unhandled - it would take the whole call loop down.
+        this.handleSpeechUtterance().catch((err) => {
+          console.warn('[mediaStream] handleSpeechUtterance failed:', err?.message || err);
+        });
         return;
       }
     }
@@ -845,7 +849,11 @@ class MediaStreamSession {
       const queued = this.pendingAudio;
       this.pendingAudio = null;
       console.log(`[mediaStream] Processing queued caller audio (${queued.length} bytes) from pending turn.`);
-      setImmediate(() => this.handleSpeechUtterance(queued));
+      setImmediate(() => {
+        this.handleSpeechUtterance(queued).catch((err) => {
+          console.warn('[mediaStream] Queued utterance processing failed:', err?.message || err);
+        });
+      });
     } else {
       this.pendingAudio = null;
     }
@@ -1128,6 +1136,26 @@ ${leadPurpose ? `- Focus the conversation directly on their inquiry: "${leadPurp
       }, waitMs);
     }
     this._finishProcessing();
+    } catch (err) {
+      // The caller DID speak and the audio was captured - their turn must never
+      // end in silence. If anything downstream (prompt build, STT, LLM, TTS)
+      // throws, answer with a polite listening response instead of dropping the
+      // turn, so the AI always replies when it has heard the user.
+      console.warn('[mediaStream] handleSpeechUtterance error:', err?.message || err);
+      if (!reply || !String(reply).trim()) {
+        try {
+          reply = `అండి, నేను వింటున్నాను. మీకు ఎలా సహాయపడగలను?`;
+        } catch {}
+      }
+      if (reply && String(reply).trim()) {
+        try {
+          this.messages.push({ role: 'assistant', content: reply });
+          this.addTranscript('ai', reply);
+          await this.speak(reply);
+        } catch (speakErr) {
+          console.warn('[mediaStream] Fallback reply failed:', speakErr?.message || speakErr);
+        }
+      }
     } finally {
       this.isProcessingSpeech = false;
       this.pendingAudio = null;

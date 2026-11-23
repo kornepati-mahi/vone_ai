@@ -548,7 +548,11 @@ class PipelineEngine extends BaseEngine {
           return;
         }
 
-        this.handleSpeechUtterance();
+        // Fire-and-forget is fine (VAD keeps consuming frames), but never let a
+        // rejection go unhandled - it would take the whole call loop down.
+        this.handleSpeechUtterance().catch((err) => {
+          console.warn('[pipeline] handleSpeechUtterance failed:', err?.message || err);
+        });
       }
     }
   }
