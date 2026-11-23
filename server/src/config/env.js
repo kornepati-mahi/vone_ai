@@ -1,6 +1,43 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
+// Sarvam's /speech-to-text endpoint rejects any model outside this enum with a
+// 400 invalid_request_error. A stale deployment value (the old docs shipped
+// `saaras:v2`, which is not accepted) made every live STT call fail and silently
+// fall back to Groq Whisper, which misheard Telugu callers. Normalising once at
+// boot fixes existing deployments without touching their environment variables.
+const SARVAM_STT_MODELS = new Set([
+  'saarika:v2.5',
+  'saaras:v3',
+  'saaras:v3-realtime',
+  'saaras:v4',
+  'saaras-multispeaker',
+  'saaras:v4-multispk',
+  'saarika:v1',
+  'saarika:v2',
+  'saarika:flash',
+]);
+
+// Older names that are safe to map onto a currently accepted model.
+const SARVAM_STT_ALIASES = {
+  'saaras': 'saaras:v3',
+  'saaras:v1': 'saaras:v3',
+  'saaras:v2': 'saaras:v3',
+  'saarika': 'saarika:v2.5',
+};
+
+function resolveSarvamSttModel() {
+  const raw = String(process.env.SARVAM_STT_MODEL || '')
+    .trim()
+    .replace(/^["']+|["']+$/g, '');
+  const normalized = SARVAM_STT_ALIASES[raw.toLowerCase()] || raw.toLowerCase();
+  if (normalized && SARVAM_STT_MODELS.has(normalized)) return normalized;
+  if (raw) {
+    console.warn(`[config] SARVAM_STT_MODEL="${raw}" is not a valid Sarvam STT model; using saaras:v3 instead.`);
+  }
+  return 'saaras:v3';
+}
+
 module.exports = {
   port: parseInt(process.env.PORT || '5000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -58,7 +95,7 @@ module.exports = {
     sarvam: {
       apiKey: process.env.SARVAM_API_KEY || '',
       model: process.env.SARVAM_MODEL || 'bulbul:v3',
-      sttModel: process.env.SARVAM_STT_MODEL || 'saaras:v3',
+      sttModel: resolveSarvamSttModel(),
     },
     gemini: {
       apiKey: process.env.GEMINI_API_KEY || '',

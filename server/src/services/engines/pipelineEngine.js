@@ -126,7 +126,7 @@ function sleep(ms) {
  * PipelineEngine
  *
  * Custom turn-based conversational pipeline:
- * VoBiz audio (8kHz mu-law) -> VAD -> Sarvam Saaras v2 STT (te-IN) -> Groq LPU LLM -> Cartesia Sonic 3.6 TTS -> VoBiz playAudio
+ * VoBiz audio (8kHz mu-law) -> VAD -> Sarvam Saaras v3 STT (te-IN) -> Groq LPU LLM -> Cartesia Sonic 3.6 TTS -> VoBiz playAudio
  */
 class PipelineEngine extends BaseEngine {
   constructor(options) {
@@ -572,6 +572,7 @@ class PipelineEngine extends BaseEngine {
       this.exitTimer = null;
     }
     this.isProcessingSpeech = true;
+    let replied = false;
     try {
     const fullAudio = overrideAudio || Buffer.concat(this.audioBuffer);
     this.audioBuffer = [];
@@ -612,7 +613,10 @@ class PipelineEngine extends BaseEngine {
       try {
         const stt = await attempt.run();
         userText = (stt.transcript || '').trim();
-        if (userText) break;
+        // Trust a successful provider even when it heard nothing. Falling through
+        // to Whisper on an empty result made it hallucinate phrases out of breath
+        // and background noise, so the AI replied when the caller had not spoken.
+        break;
       } catch (sttErr) {
         console.warn(`[pipeline] STT ${attempt.name} error: ${sttErr.message}`);
       }
@@ -781,6 +785,9 @@ Rules:
           maxTokens: 160,
           frequencyPenalty: 0.5,
           presencePenalty: 0.3,
+          // A live phone turn cannot afford the 2s 429 retry backoff. Fall
+          // straight through to the production fallback model instead.
+          maxRetries: 0,
         });
         reply = (llmRes.text || '').replace(/[*_#•-]/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -819,6 +826,7 @@ Rules:
 
     this.messages.push({ role: 'assistant', content: reply });
     this.session.addTranscript('ai', reply);
+    replied = true;
     this.recentAiSpeech = [reply];
     await this.speak(reply);
 
@@ -836,6 +844,27 @@ Rules:
       this.armSilenceTimer();
     }
     this._finishProcessing();
+    } catch (err) {
+      // VAD opens a turn only after real caller speech, so an unexpected failure
+      // (prompt build, transcript storage, timers) must still answer instead of
+      // leaving dead air. `replied` prevents a duplicate when the error happens
+      // after the reply was already queued.
+      console.warn('[pipeline] handleSpeechUtterance error:', err?.message || err);
+      if (!replied && !this.session?.finished) {
+        try {
+          const lang = (this.employee?.language_code || 'te').toLowerCase();
+          const fallback = lang.startsWith('en')
+            ? 'Yes, I am listening. How can I help you?'
+            : lang.startsWith('hi')
+            ? 'जी, मैं सुन रही हूँ। बताइए, मैं आपकी क्या सहायता कर सकती हूँ?'
+            : 'అండి, నేను వింటున్నాను. మీకు ఎలా సహాయపడగలను?';
+          this.messages.push({ role: 'assistant', content: fallback });
+          this.session.addTranscript('ai', fallback);
+          await this.speak(fallback);
+        } catch (fallbackErr) {
+          console.warn('[pipeline] Fallback reply failed:', fallbackErr?.message || fallbackErr);
+        }
+      }
     } finally {
       this.isProcessingSpeech = false;
       this.pendingAudio = null;

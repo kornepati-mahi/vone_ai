@@ -12,7 +12,7 @@
 | **Cartesia** | Sonic 3.6 Multilingual TTS & Voice Agents | `https://api.cartesia.ai` / `wss://api.cartesia.ai` | `Authorization: Bearer <key>` (REST)<br>`X-API-Key: <key>` (WS) | `Cartesia-Version: 2026-08-14`<br>Model: `sonic-3.6` |
 | **Groq** | Fast LPU Inference for Dialogue & Lead Extraction | `https://api.groq.com/openai/v1` | `Authorization: Bearer <key>` | `qwen/qwen-2.5-32b-instruct` / `llama-3.3-70b-versatile` |
 | **Deepgram** | High-Accuracy Monolingual Telugu STT | `https://api.deepgram.com/v1/listen` | `Authorization: Token <key>` | Model: `nova-3`, Language: `te` |
-| **Sarvam AI** | Regional Indian Language STT & TTS Fallback | `https://api.sarvam.ai` | `api-subscription-key: <key>` | `saaras:v2` (STT), `bulbul:v3` (TTS) |
+| **Sarvam AI** | Regional Indian Language STT & TTS Fallback | `https://api.sarvam.ai` | `api-subscription-key: <key>` | `saaras:v3` (STT), `bulbul:v3` (TTS) |
 
 ---
 
@@ -121,7 +121,7 @@
 - **Latency**: 300 ms - 900 ms per utterance.
 - **Accuracy on Benchmark**: **83.3%** standalone.
 
-### 4.2 Sarvam AI Saaras v2 (`te-IN`)
+### 4.2 Sarvam AI Saaras v3 (`te-IN`)
 - **Endpoint**: `POST https://api.sarvam.ai/speech-to-text`
 - **Header**: `api-subscription-key: {SARVAM_API_KEY}`
 - **Latency**: 200 ms - 450 ms per utterance.

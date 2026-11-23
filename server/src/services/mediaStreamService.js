@@ -866,6 +866,8 @@ class MediaStreamSession {
       this.exitTimer = null;
     }
     this.isProcessingSpeech = true;
+    let reply = '';
+    let replyCommitted = false;
     try {
     const fullAudio = overrideAudio || Buffer.concat(this.audioBuffer);
     this.audioBuffer = [];
@@ -927,6 +929,11 @@ class MediaStreamSession {
           }
           break;
         }
+        // A successful empty result means the captured audio contained no
+        // speech. Asking Whisper again would hallucinate a phrase from noise and
+        // make the AI answer a caller who never spoke.
+        console.log(`[mediaStream] STT ${attempt.name} heard no speech; not asking fallback providers.`);
+        break;
       } catch (sttErr) {
         console.warn(`[mediaStream] STT ${attempt.name} unavailable: ${sttErr.message}`);
       }
@@ -1064,7 +1071,6 @@ ${leadPurpose ? `- Focus the conversation directly on their inquiry: "${leadPurp
     // Detect if customer explicitly requested to cut call OR answered negative/done to assistant question confirmation
     let isEndingCall = detectEndingIntent(userText, this.messages);
 
-    let reply = '';
     try {
       const promptToUse = isEndingCall
         ? `${systemPrompt}\nThe customer has completed their inquiry and the call is ending. Give a warm, polite 1-sentence farewell in character (thank them and mention details/quote/link will be sent on WhatsApp). Do NOT ask any more questions.`
@@ -1076,7 +1082,7 @@ ${leadPurpose ? `- Focus the conversation directly on their inquiry: "${leadPurp
         maxTokens: 220,
         frequencyPenalty: 0.6,
         presencePenalty: 0.4,
-        maxRetries: 1,
+        maxRetries: 0,
       });
       reply = (llmRes.text || '')
         .replace(/[*_#•-]/g, ' ')
@@ -1117,6 +1123,7 @@ ${leadPurpose ? `- Focus the conversation directly on their inquiry: "${leadPurp
 
     this.messages.push({ role: 'assistant', content: reply });
     this.addTranscript('ai', reply);
+    replyCommitted = true;
 
     // Synthesize voice and stream back
     await this.speak(reply);
@@ -1143,18 +1150,17 @@ ${leadPurpose ? `- Focus the conversation directly on their inquiry: "${leadPurp
       // turn, so the AI always replies when it has heard the user.
       console.warn('[mediaStream] handleSpeechUtterance error:', err?.message || err);
       if (!reply || !String(reply).trim()) {
-        try {
-          reply = `అండి, నేను వింటున్నాను. మీకు ఎలా సహాయపడగలను?`;
-        } catch {}
+        reply = `అండి, నేను వింటున్నాను. మీకు ఎలా సహాయపడగలను?`;
       }
-      if (reply && String(reply).trim()) {
-        try {
-          this.messages.push({ role: 'assistant', content: reply });
-          this.addTranscript('ai', reply);
-          await this.speak(reply);
-        } catch (speakErr) {
-          console.warn('[mediaStream] Fallback reply failed:', speakErr?.message || speakErr);
-        }
+      if (!replyCommitted) {
+        this.messages.push({ role: 'assistant', content: reply });
+        this.addTranscript('ai', reply);
+        replyCommitted = true;
+      }
+      try {
+        await this.speak(reply);
+      } catch (speakErr) {
+        console.warn('[mediaStream] Fallback reply failed:', speakErr?.message || speakErr);
       }
     } finally {
       this.isProcessingSpeech = false;

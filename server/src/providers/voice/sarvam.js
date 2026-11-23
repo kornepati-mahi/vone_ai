@@ -9,6 +9,15 @@ function isClonedVoiceId(id) {
   return typeof id === 'string' && CLONE_ID_RE.test(id.trim());
 }
 
+// Sarvam expects a BCP-47 locale (`te-IN`), but employee rows are sometimes
+// stored as a bare language code (`te`), which is rejected by the STT endpoint.
+function normalizeLanguageCode(code) {
+  const raw = String(code || 'te-IN').trim();
+  if (!raw) return 'te-IN';
+  if (/^[a-z]{2}$/i.test(raw)) return `${raw.toLowerCase()}-IN`;
+  return raw;
+}
+
 async function sarvamRequest(path, options = {}) {
   if (!config.providers.sarvam.apiKey) {
     throw new AppError('Sarvam API key not configured in .env (SARVAM_API_KEY)', 500, 'SARVAM_NOT_CONFIGURED');
@@ -205,7 +214,8 @@ class SarvamProvider {
     const blob = new Blob([buffer], { type: opts.mimeType || 'audio/wav' });
     formData.append('file', blob, 'audio.wav');
     formData.append('model', config.providers.sarvam.sttModel || 'saaras:v3');
-    if (opts.language) formData.append('language_code', opts.language);
+    const language = normalizeLanguageCode(opts.language);
+    formData.append('language_code', language);
 
     const data = await sarvamRequest('/speech-to-text', {
       method: 'POST',
@@ -214,7 +224,7 @@ class SarvamProvider {
 
     return {
       transcript: data.transcript || '',
-      languageCode: data.language_code || opts.language || 'te-IN',
+      languageCode: data.language_code || language || 'te-IN',
       confidence: data.confidence || 0.95,
       raw: data,
     };

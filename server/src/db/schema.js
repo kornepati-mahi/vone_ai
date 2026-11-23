@@ -294,6 +294,8 @@ const TABLES = {
       recording_url VARCHAR(500) NULL,
       credits_used DECIMAL(8,2) NOT NULL DEFAULT 0,
       request_id VARCHAR(64) NULL,
+      carrier_call_uuid VARCHAR(64) NULL,
+      engine_used VARCHAR(32) NULL,
       error TEXT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -675,7 +677,38 @@ async function migrate() {
       console.error(`  FAIL ${name}: ${err.message}`);
     }
   }
+  await ensureColumns(db);
   console.log('[DB] Migration complete.');
+}
+
+// Columns introduced after the initial release never reach an existing database
+// through CREATE TABLE IF NOT EXISTS: the table already exists, so the new column
+// is silently skipped and any query that references it fails at runtime with
+// ER_BAD_FIELD_ERROR. Production hit exactly that on calls.carrier_call_uuid
+// (carrier callbacks) and calls.engine_used (finishing a live call), which is why
+// hangup/recording callbacks never resolved a call row. Append to this list
+// whenever a column is added to an existing table.
+const ADDED_COLUMNS = [
+  { table: 'calls', column: 'carrier_call_uuid', definition: 'VARCHAR(64) NULL' },
+  { table: 'calls', column: 'engine_used', definition: 'VARCHAR(32) NULL' },
+];
+
+async function ensureColumns(db) {
+  for (const { table, column, definition } of ADDED_COLUMNS) {
+    try {
+      const rows = await db.query(
+        `SELECT 1 FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+          LIMIT 1`,
+        [table, column]
+      );
+      if (rows.length) continue;
+      await db.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}`);
+      console.log(`  ok  ${table}.${column} added`);
+    } catch (err) {
+      console.error(`  FAIL ${table}.${column}: ${err.message}`);
+    }
+  }
 }
 
 // The leads UI used to write Title-Case values ("Interested", "Not Interested")
