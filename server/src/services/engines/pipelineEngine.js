@@ -299,7 +299,9 @@ class PipelineEngine extends BaseEngine {
       }
     }
 
-      const leadName = (this.lead?.name || '').trim();
+      const rawLeadName = (this.lead?.name || '').trim();
+      const isDummyLead = !rawLeadName || /^(lead|customer|user|optional|client|unknown|test|instant lead)$/i.test(rawLeadName);
+      const leadName = isDummyLead ? '' : rawLeadName;
       const leadPurpose = (this.lead?.purpose || '').trim();
       const lang = (this.employee?.language_code || 'te').toLowerCase();
       const isTe = !lang.startsWith('en') && !lang.startsWith('hi');
@@ -311,7 +313,7 @@ class PipelineEngine extends BaseEngine {
       isHi ? `${leadName} जी` :
       !isTe ? leadName :
       `${leadName} గారు`
-    ) : '';
+    ) : (isTe ? 'అండి' : isHi ? 'जी' : '');
 
     let greeting = '';
     const customGreeting = (this.employee?.greeting || '').trim();
@@ -319,12 +321,14 @@ class PipelineEngine extends BaseEngine {
     if (customGreeting) {
       greeting = customGreeting
         .replace('{name}', empName)
-        .replace('{company}', company);
+        .replace('{company}', company)
+        .replace(/\[(institute\s*name|company\s*name|company|organization)\]/gi, company)
+        .replace(/\[(సంస్థ\s*పేరు|కంపెనీ\s*పేరు)\]/gi, company);
 
       // If placeholders exist in template, replace them with lead name
       if (customGreeting.includes('{lead') || customGreeting.includes('{customer')) {
-        greeting = greeting.replace(/\{lead_name\}|\{customer_name\}|\{lead\}|\{customer\}/gi, leadHonorific || (isTe ? 'అండి' : isHi ? 'जी' : 'there'));
-      } else if (leadHonorific && !greeting.includes(leadName)) {
+        greeting = greeting.replace(/\{lead_name\}|\{customer_name\}|\{lead\}|\{customer\}/gi, leadHonorific);
+      } else if (leadName && !greeting.includes(leadName)) {
         // Naturally weave the entered lead name into the greeting opening without duplication
         const teMatch = greeting.match(/^(\s*)(నమస్కారం|నమస్తే)(\s*అండి)?([\s,!.–—]+)(.*)$/i);
         const teHello = greeting.match(/^(\s*)(హలో)([\s,!.–—]+)(.*)$/i);
@@ -348,25 +352,25 @@ class PipelineEngine extends BaseEngine {
     } else {
       // Default natural generated greeting
       if (isHi) {
-        if (leadHonorific && leadPurpose) {
+        if (leadName && leadPurpose) {
           greeting = `नमस्ते ${leadHonorific}! मेरा नाम ${empName} है, मैं ${company} से बात कर रही हूँ। आपने ${leadPurpose} के बारे में जानकारी माँगी थी, क्या आपसे एक मिनट बात हो सकती है?`;
-        } else if (leadHonorific) {
+        } else if (leadName) {
           greeting = `नमस्ते ${leadHonorific}! मेरा नाम ${empName} है, मैं ${company} से बात कर रही हूँ। क्या आपसे एक मिनट बात हो सकती है?`;
         } else {
-          greeting = `नमस्ते! मेरा नाम ${empName} है, मैं ${company} से बात कर रही हूँ। क्या आपसे एक मिनट बात हो सकती है?`;
+          greeting = `नमस्ते जी! मेरा नाम ${empName} है, मैं ${company} से बात कर रही हूँ। क्या आपसे एक मिनट बात हो सकती है?`;
         }
       } else if (!isTe) {
-        if (leadHonorific && leadPurpose) {
+        if (leadName && leadPurpose) {
           greeting = `Hello ${leadHonorific}! My name is ${empName} calling from ${company}. I am following up on your enquiry regarding ${leadPurpose}. Do you have a quick minute to speak?`;
-        } else if (leadHonorific) {
+        } else if (leadName) {
           greeting = `Hello ${leadHonorific}! My name is ${empName} from ${company}. Do you have a quick minute to speak?`;
         } else {
           greeting = `Hello! My name is ${empName} from ${company}. Do you have a quick minute to speak?`;
         }
       } else {
-        if (leadHonorific && leadPurpose) {
+        if (leadName && leadPurpose) {
           greeting = `నమస్కారం ${leadHonorific}! నా పేరు ${empName}. నేను ${company} నుంచి మాట్లాడుతున్నాను. మీరు ${leadPurpose} గురించి ఆసక్తి చూపించారు కదా, మీతో ఒక నిమిషం మాట్లాడవచ్చా అండి?`;
-        } else if (leadHonorific) {
+        } else if (leadName) {
           greeting = `నమస్కారం ${leadHonorific}! నా పేరు ${empName}, నేను ${company} నుంచి మాట్లాడుతున్నాను. మీతో ఒక నిమిషం మాట్లాడవచ్చా అండి?`;
         } else {
           greeting = `నమస్కారం అండి! నా పేరు ${empName}, నేను ${company} నుంచి మాట్లాడుతున్నాను. మీతో ఒక నిమిషం మాట్లాడవచ్చా అండి?`;
@@ -426,39 +430,36 @@ class PipelineEngine extends BaseEngine {
     this.diag.mediaChunks++;
     const now = Date.now();
 
-    // 16-bit linear PCM noise floor tracking (analog line hiss ~100-600 RMS)
+    // 16-bit linear PCM noise floor tracking (analog line hiss ~80-500 RMS)
     if (rms < 800) {
       this.noiseFloor = this.noiseFloor === 0
         ? rms
-        : Math.min(600, Math.max(80, this.noiseFloor * 0.95 + rms * 0.05));
+        : Math.min(500, Math.max(60, this.noiseFloor * 0.95 + rms * 0.05));
     }
 
-    const baseFloor = Math.max(80, Math.min(600, this.noiseFloor || 200));
+    const baseFloor = Math.max(60, Math.min(500, this.noiseFloor || 160));
     const isAiPlaying = (this.isAiSpeaking || now < (this.playbackEndTime || 0)) && !this._bargedIn;
 
     if (isAiPlaying) {
-      // Rolling buffer of inbound frames during AI speech (last 8 frames = 160ms)
+      // Rolling buffer of inbound frames during AI speech (keep last 20 frames = 400ms)
       if (!this.bargeInBuffer) this.bargeInBuffer = [];
       this.bargeInBuffer.push(chunk);
-      if (this.bargeInBuffer.length > 8) this.bargeInBuffer.shift();
+      if (this.bargeInBuffer.length > 20) this.bargeInBuffer.shift();
 
       const speakElapsed = now - (this.lastSpeakStart || 0);
-      // Protect initial greeting from acoustic echo cancellation
-       // Respond to a sudden caller interruption as early as possible instead of
-       // letting the AI finish its current utterance. Keep only a short echo
-       // guard at the very start of a turn.
-       const minSpeakElapsed = 0;
+      const minSpeakElapsed = 150; // allow 150ms echo guard after AI speech begins
 
-       // Realistic speech detection over acoustic echo on 16-bit linear PCM:
-       // Phone acoustic echo peaks around 1,500 - 3,800 RMS.
-       // During initial greeting, speaker volume is loud, so protect with higher threshold & run
-       const bargeThreshold = this.isGreeting ? Math.max(4500, baseFloor * 8) : Math.max(3000, baseFloor * 5);
-       const isLoudSpeech = rms >= bargeThreshold;
-       this.speechRun = isLoudSpeech ? (this.speechRun || 0) + 1 : 0;
-       const requiredRun = this.isGreeting ? 5 : 3;
+      // Realistic speech detection on 16-bit linear PCM telephony:
+      // Phone speech energy is typically 800 - 2200 RMS.
+      // Acoustic echo on handset earpiece rarely exceeds 800 RMS.
+      // Set barge-in threshold to a natural, responsive conversational level:
+      const bargeThreshold = Math.max(900, baseFloor * 2.5);
+      const isLoudSpeech = rms >= bargeThreshold;
+      this.speechRun = isLoudSpeech ? (this.speechRun || 0) + 1 : 0;
+      const requiredRun = 3; // 3 frames = 60ms of continuous caller voice
 
-      // Require consecutive loud speech frames to ensure it's deliberate caller speech, not an echo blip
-       if (speakElapsed >= minSpeakElapsed && this.speechRun >= requiredRun) {
+      // Detect deliberate caller speech and trigger barge-in immediately
+      if (speakElapsed >= minSpeakElapsed && this.speechRun >= requiredRun) {
         if (!this._bargeInLogged) {
           this._bargeInLogged = true;
           console.log(`[pipeline] Caller barge-in: interrupting AI playback (rms=${rms.toFixed(0)}, elapsed=${speakElapsed}ms)`);
@@ -483,10 +484,10 @@ class PipelineEngine extends BaseEngine {
       return;
     }
 
-    const speechThreshold = Math.max(650, baseFloor * 2.2);
+    const speechThreshold = Math.max(500, baseFloor * 1.8);
     const isSpeechLike = rms >= speechThreshold;
     this.speechRun = isSpeechLike ? (this.speechRun || 0) + 1 : 0;
-    const sustainedSpeech = this.speechRun >= 3;
+    const sustainedSpeech = this.speechRun >= 2;
 
     if (!this.isUserSpeaking) {
       if (!this.preSpeechBuffer) this.preSpeechBuffer = [];
@@ -627,7 +628,9 @@ class PipelineEngine extends BaseEngine {
       return;
     }
 
-    const leadName = (this.lead?.name || '').trim();
+    const rawLeadName = (this.lead?.name || '').trim();
+    const isDummyName = /^(lead|customer|user|optional|client|unknown|test)$/i.test(rawLeadName);
+    const leadName = isDummyName ? '' : rawLeadName;
     const leadPurpose = (this.lead?.purpose || '').trim();
     const lang = languageCode;
     const empName = this.employee?.name || (isTe ? 'రాధ' : isHi ? 'राधा' : 'Radha');
@@ -674,7 +677,8 @@ class PipelineEngine extends BaseEngine {
           normUser.includes('మాట్లాడుతున్నాను') ||
           normUser.includes('speaking') ||
           normUser.includes('bol') ||
-          normUser.includes('హలో నేను')
+          normUser.includes('बोल रही') ||
+          normUser.includes('बोल रहा')
         )
       );
 
@@ -795,21 +799,15 @@ Rules:
           .filter((m) => m.role === 'assistant')
           .map((m) => String(m.content || '').trim().toLowerCase())
           .filter(Boolean);
-        const isRepeatedReply = priorAssistantReplies.some((prev) => {
-          const a = prev;
-          const b = reply.trim().toLowerCase();
-          if (!a || !b) return false;
-          if (a === b) return true;
-          if (b.length > 20 && a.includes(b.slice(0, 25))) return true;
-          if (a.length > 20 && b.includes(a.slice(0, 25))) return true;
-          return false;
-        });
+        const lastPrior = priorAssistantReplies[priorAssistantReplies.length - 1] || '';
+        const b = reply.trim().toLowerCase();
+        const isRepeatedReply = Boolean(lastPrior && b && (lastPrior === b || echoTextScore(lastPrior, b) >= 0.85));
         if (isRepeatedReply) {
           reply = isTe
-            ? `చెప్పండి ${leadHonorific}, నేను వింటున్నాను. మీకు ఎలా సహాయపడగలను?`
+            ? (leadPurpose ? `అవునండి ${leadHonorific}, ${leadPurpose} గురించి మరింత సమాచారం కావాలా?` : `అవునండి ${leadHonorific}, నేను వింటున్నాను. దయచేసి చెప్పండి.`)
             : isHi
-            ? `जी ${leadHonorific}, मैं सुन रही हूँ। बताइए, मैं आपकी क्या सहायता कर सकती हूँ?`
-            : `Yes ${leadHonorific}, I am listening. How can I help you today?`;
+            ? `जी ${leadHonorific}, मैं सुन रही हूँ। कृपया बताइए।`
+            : `Yes ${leadHonorific}, I am listening. Please let me know.`;
         }
       } catch (llmErr) {
         console.warn('[pipeline] LLM error:', llmErr.message);
@@ -817,10 +815,10 @@ Rules:
 
       if (!reply) {
         reply = isTe
-          ? `చెప్పండి ${leadHonorific}, నేను వింటున్నాను. మీకు ఎలా సహాయపడగలను?`
+          ? `అవునండి ${leadHonorific}, నేను వింటున్నాను. దయచేసి చెప్పండి.`
           : isHi
-          ? `जी ${leadHonorific}, मैं सुन रही हूँ। बताइए, मैं आपकी क्या सहायता कर सकती हूँ?`
-          : `Yes ${leadHonorific}, I am listening. How can I help you today?`;
+          ? `जी ${leadHonorific}, मैं सुन रही हूँ। कृपया बताइए।`
+          : `Yes ${leadHonorific}, I am listening. Please go ahead.`;
       }
     }
 
@@ -857,7 +855,7 @@ Rules:
             ? 'Yes, I am listening. How can I help you?'
             : lang.startsWith('hi')
             ? 'जी, मैं सुन रही हूँ। बताइए, मैं आपकी क्या सहायता कर सकती हूँ?'
-            : 'అండి, నేను వింటున్నాను. మీకు ఎలా సహాయపడగలను?';
+            : 'అవునండి, నేను వింటున్నాను. చెప్పండి.';
           this.messages.push({ role: 'assistant', content: fallback });
           this.session.addTranscript('ai', fallback);
           await this.speak(fallback);

@@ -1544,7 +1544,14 @@ ${leadPurpose ? `- Focus the conversation directly on their inquiry: "${leadPurp
     // it only produces a confident guess.
     if (rows.length < 2) {
       console.warn(`[mediaStream] Not scoring ${this.callId}: only ${rows.length} transcript line(s).`);
-      return null;
+      const fallbackOutcome = duration >= 15 ? 'follow_up' : 'no_answer';
+      await update('UPDATE calls SET outcome = ? WHERE id = ?', [fallbackOutcome, this.callDbId]).catch(() => {});
+      if (callRow?.lead_id) {
+        await update('UPDATE leads SET status = ?, outcome = ?, last_call_id = COALESCE(last_call_id, ?) WHERE id = ?',
+          [duration >= 15 ? 'contacted' : 'no_answer', fallbackOutcome, this.callDbId, callRow.lead_id]
+        ).catch(() => {});
+      }
+      return { outcome: fallbackOutcome };
     }
 
     try {
@@ -1683,6 +1690,37 @@ ${leadPurpose ? `- Focus the conversation directly on their inquiry: "${leadPurp
         // conversion - so the whole dashboard read as if nothing had happened.
         const callRow = await queryOne('SELECT * FROM calls WHERE id = ?', [this.callDbId]);
         const analysis = await this.analyzeCompletedCall(callRow, duration, status);
+
+        // Reconcile campaign lead if part of a campaign
+        if (callRow?.campaign_id && callRow?.lead_id) {
+          try {
+            const completed = status === 'completed';
+            const leadStatus = completed ? 'contacted' : status === 'busy' ? 'busy' : status === 'no_answer' ? 'no_answer' : 'failed';
+            const effOutcome = analysis?.outcome || (completed ? 'completed' : status);
+            const res = await update(
+              `UPDATE campaign_leads
+                  SET status = ?, called_at = COALESCE(called_at, NOW()), last_error = ?
+                WHERE campaign_id = ? AND lead_id = ? AND status IN ("calling", "pending", "queued")`,
+              [leadStatus, completed ? null : status, callRow.campaign_id, callRow.lead_id]
+            );
+            if (res.changedRows) {
+              await update(
+                `UPDATE campaigns
+                    SET ${completed ? 'completed_leads' : 'failed_leads'} = ${completed ? 'completed_leads' : 'failed_leads'} + 1
+                  WHERE id = ?`,
+                [callRow.campaign_id]
+              );
+            }
+            await update(
+              `UPDATE leads
+                  SET status = ?, outcome = COALESCE(?, outcome), last_call_id = COALESCE(last_call_id, ?)
+                WHERE id = ?`,
+              [leadStatus, effOutcome, this.callDbId, callRow.lead_id]
+            ).catch(() => {});
+          } catch (campErr) {
+            console.warn('[mediaStream] Campaign lead settle error:', campErr.message);
+          }
+        }
 
         // Persist the mixed call recording. Without this the call has no audio at
         // all, because <Stream> gives us no carrier-side recording to point at.

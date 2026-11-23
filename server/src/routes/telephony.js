@@ -191,16 +191,27 @@ async function rememberCarrierCallUuid(dbCallId, callUuid) {
  * only settled if it is still "calling" - the WHERE guard makes a duplicated
  * callback a no-op instead of double-counting completed_leads.
  */
-async function settleCampaignLead(call, normalizedStatus) {
+async function settleCampaignLead(call, normalizedStatus, outcome = null) {
+  if (!call?.campaign_id || !call?.lead_id) return;
+
   const completed = normalizedStatus === 'completed';
-  const leadStatus = completed ? 'completed' : 'failed';
+  const leadStatus = completed ? 'contacted' : normalizedStatus === 'busy' ? 'busy' : normalizedStatus === 'no_answer' ? 'no_answer' : 'failed';
+  const effectiveOutcome = outcome || (completed ? 'completed' : normalizedStatus);
 
   const res = await update(
     `UPDATE campaign_leads
         SET status = ?, called_at = COALESCE(called_at, NOW()), last_error = ?
-      WHERE campaign_id = ? AND lead_id = ? AND status = "calling"`,
+      WHERE campaign_id = ? AND lead_id = ? AND status IN ("calling", "pending", "queued")`,
     [leadStatus, completed ? null : normalizedStatus, call.campaign_id, call.lead_id]
   );
+
+  // Reconcile main leads table so leads reflect accurate outcome & status
+  await update(
+    `UPDATE leads
+        SET status = ?, outcome = COALESCE(?, outcome), last_call_id = COALESCE(last_call_id, ?)
+      WHERE id = ?`,
+    [leadStatus, effectiveOutcome, call.id, call.lead_id]
+  ).catch((e) => console.warn('[telephony] Update leads table error:', e.message));
 
   if (!res.changedRows) return;
 
@@ -343,7 +354,24 @@ router.post('/webhook', express.urlencoded({ extended: true }), asyncHandler(asy
     }
   }
 
-  const normalizedStatus = statusMap[rawStatus] || rawStatus;
+  let normalizedStatus = statusMap[rawStatus] || rawStatus;
+  const isHangupEvent = normalizedStatus === 'hangup' || rawStatus === 'hangup' || eventName.toLowerCase() === 'hangup';
+  if (isHangupEvent) {
+    const cause = String(body.HangupCause || body.hangup_cause || body.Reason || body.hangup_source || '').toUpperCase();
+    const causeCode = parseInt(body.HangupCauseCode || body.hangup_cause_code || '0', 10);
+    if (cause.includes('BUSY') || causeCode === 3010 || causeCode === 486) {
+      normalizedStatus = 'busy';
+    } else if (cause.includes('NO_ANSWER') || cause.includes('CANCEL') || cause.includes('TIMEOUT') || causeCode === 3001 || causeCode === 487 || causeCode === 408) {
+      normalizedStatus = 'no_answer';
+    } else if (cause.includes('REJECT') || cause.includes('UNALLOCATED') || causeCode === 3004 || causeCode === 404 || causeCode === 603) {
+      normalizedStatus = 'failed';
+    } else if (duration > 0 || (call && call.answered_at)) {
+      normalizedStatus = 'completed';
+    } else {
+      normalizedStatus = 'no_answer';
+    }
+    console.log(`[webhook] Resolved VoBiz Hangup event (cause=${cause || causeCode}, duration=${duration}s) -> ${normalizedStatus}`);
+  }
 
   let call = null;
   if (carrierIds.length) {
